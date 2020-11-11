@@ -19,11 +19,12 @@ friday = today - timedelta(days=today.weekday()) + timedelta(days=4, weeks=-1)
 last_100_fridays = []
 
 # Get last n number of Fridays
-number_of_weeks = 2
+number_of_weeks = 5
 
 # Generate dates
 for week in range(number_of_weeks):
     date = friday - timedelta(days=week * 7)
+    # Url accepts one digit months and days with a starting 0
     day = date.day if len(str(date.day)) != 1 else f'0{date.day}'
     month = date.month if len(str(date.month)) != 1 else f'0{date.month}'
     last_100_fridays.append(f'{day}-{month}-{date.year}')
@@ -42,71 +43,94 @@ def parse(url_to_parse):
     return result_page
 
 
-def save_file(parsed_page_data, name_to_save):
-    with open(f'{path_to_save}{name_to_save}'.replace('.csv', '.txt'), 'w+') as f:
-        data = parsed_page_data.find_all('td')
-        number_of_winners = parsed_page_data.find_all('span', attrs={'class': 'td-top'})
-        categories = parsed_page_data.find_all('div', attrs={'class': 'td-bottom'})
-        numbers = parsed_page_data.find_all('li', attrs={'class': 'lottery-ball'})
+def extract_data(soup):
+    # Create arrays for the information we want to extract
+    numbers_array = []
+    prize_array = []
+    winners_array = []
+    categories_array = []
 
-        numbers_array = []
-        prize_array = []
-        winners_array = []
-        categories_array = []
+    # Find the data we need
+    table = soup.find_all('td')
+    number_of_winners = soup.find_all('span', attrs={'class': 'td-top'})
+    categories = soup.find_all('div', attrs={'class': 'td-bottom'})
+    numbers = soup.find_all('li', attrs={'class': 'lottery-ball'})
 
-        for num in numbers:
-            numbers_array.append(num.text)
+    # Extract winner numbers
+    for num in numbers:
+        numbers_array.append(num.text)
 
-        for row in data[1::2]:
-            row = row.text.strip()
-            row = row.replace('Winners', '')
-            row = row.replace('Winner', '')
-            row = row.replace('\n', '')
-            prize_array.append(row)
+    # Extract prize values and strip away whitespace and unnecessary text
+    for row in table[1::2]:
+        row = row.text.strip()
+        row = row.replace('Winners', '')
+        row = row.replace('Winner', '')
+        row = row.replace('\n', '')
+        prize_array.append(row)
 
-        for count, row in enumerate(data[0::2]):
-            winners = number_of_winners[count].text.replace('Winners', '')
-            winners = winners.replace('Winner', '')
-            winners = winners.strip()
-            winners = winners.replace('\n', '')
-            winners_array.append(winners)
+    # Extract number of winners for each category and strip away whitespace and unnecessary text
+    for count, row in enumerate(table[0::2]):
+        winners = number_of_winners[count].text.replace('Winners', '')
+        winners = winners.replace('Winner', '')
+        winners = winners.strip()
+        winners = winners.replace('\n', '')
+        winners_array.append(winners)
 
-        for row in categories:
-            categories_array.append(row.text)
+    # Extract categories
+    for row in categories:
+        categories_array.append(row.text.strip())
 
-        data = {'Prize': prize_array,
-                'Winners': winners_array
-                }
+    data_dict = {'numbers': numbers_array, 'categories': categories_array, 'prizes': prize_array,
+                 'winners': winners_array}
 
-        df = pd.DataFrame(data, columns=['Prize', 'Winners'])
+    return data_dict
+
+
+# With save_file we create both txt and csv file, unless its values are explicitly defined to be False
+def save_file(extracted_data, name_to_save, txt=True, csv=True):
+    # This function assumes already extracted and cleaned data arrays
+
+    if txt:
+        with open(f'{path_to_save}{name_to_save}.txt', 'w+') as f:
+            # Create txt file with all the data
+            f.write('Numbers: ' + str(extracted_data['numbers']) + '\n')
+            f.write('Categories: ' + str(extracted_data['categories']) + '\n')
+            f.write('Number of winners: ' + str(extracted_data['winners']) + '\n')
+            f.write('Prizes: ' + str(extracted_data['prizes']) + '\n')
+
+    if csv:
+        # Define columns
+        data_dict = {'Prizes': extracted_data['prizes'], 'Winners': extracted_data['winners']}
+
+        # Create dataframe
+        df = pd.DataFrame(data_dict, columns=['Prizes', 'Winners'])
 
         # Create csv file with prize and winners columns
-        df.to_csv(f'{path_to_save}{name_to_save}', index=True, header=True)
-
-        # Create txt file with all the data
-        f.write('Numbers: ' + str(numbers_array) + '\n')
-        f.write('Categories: ' + str(categories_array) + '\n')
-        f.write('Number of winners: ' + str(winners_array) + '\n')
-        f.write('Prize: ' + str(prize_array) + '\n')
+        df.to_csv(f'{path_to_save}{name_to_save}.csv', index=True, header=True)
 
 
 # Loop through url collection
 for url in urls:
     # Name files after the date the numbers were drawn
-    file_name = str(url.split('/')[-1]) + '.csv'
+    file_name = str(url.split('/')[-1])
 
     # If file already exists prevent overwriting them
-    if os.path.isfile(f'{path_to_save}{file_name}'):
-        print('This filename already exists.')
-        continue
+    if os.path.isfile(f'{path_to_save}{file_name}.txt'):
+        if os.path.isfile(f'{path_to_save}{file_name}.csv'):
+            print(f'Both txt and cvs file exist with name: {file_name}.')
+            continue
+        else:
+            print(f'Txt file already exists with name: {file_name}.txt but csv wasn\'t created yet. \n'
+                  'Review your configuration if you want to save csv file too. Skipping to the next file.')
     # If file with file_name doesn't exist yet, create it
     else:
         # Check status code of response from the url
         status_code = requests.get(url).status_code
         if status_code == 200:
             parsed_page = parse(url)
+            data = extract_data(parsed_page)
             print('Creating new file...')
-            save_file(parsed_page, file_name)
+            save_file(data, file_name)
         else:
             print(f'{url} responded with status code: {status_code}')
 
