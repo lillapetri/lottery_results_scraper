@@ -1,4 +1,5 @@
 import os.path
+import re
 from datetime import datetime, timedelta
 from urllib.request import Request, urlopen
 
@@ -19,7 +20,7 @@ friday = today - timedelta(days=today.weekday()) + timedelta(days=4, weeks=-1)
 last_100_fridays = []
 
 # Get last n number of Fridays
-number_of_weeks = 5
+number_of_weeks = 1  # There's only 451 weeks of data available online
 
 # Generate dates
 for week in range(number_of_weeks):
@@ -58,30 +59,25 @@ def extract_data(soup):
 
     # Extract winner numbers
     for num in numbers:
-        numbers_array.append(num.text)
+        numbers_array.append(int(num.text))
 
     # Extract prize values and strip away whitespace and unnecessary text
     for row in table[1::2]:
-        row = row.text.strip()
-        row = row.replace('Winners', '')
-        row = row.replace('Winner', '')
-        row = row.replace('\n', '')
-        prize_array.append(row)
+        row = re.sub('[^0-9]', '', row.text)
+        prize_array.append(int(row))
 
     # Extract number of winners for each category and strip away whitespace and unnecessary text
     for count, row in enumerate(table[0::2]):
-        winners = number_of_winners[count].text.replace('Winners', '')
-        winners = winners.replace('Winner', '')
-        winners = winners.strip()
-        winners = winners.replace('\n', '')
-        winners_array.append(winners)
+        winners = number_of_winners[count].text
+        winners = re.sub('[^0-9]', '', winners)
+        winners_array.append(int(winners))
 
     # Extract categories
     for row in categories:
         categories_array.append(row.text.strip())
 
     data_dict = {'numbers': numbers_array, 'categories': categories_array, 'prizes': prize_array,
-                 'winners': winners_array}
+                 'winners': winners_array, 'winners_total': sum(winners_array), 'prize_total': sum(prize_array)}
 
     return data_dict
 
@@ -95,8 +91,10 @@ def save_file(extracted_data, name_to_save, txt=True, csv=True):
             # Create txt file with all the data
             f.write('Numbers: ' + str(extracted_data['numbers']) + '\n')
             f.write('Categories: ' + str(extracted_data['categories']) + '\n')
-            f.write('Number of winners: ' + str(extracted_data['winners']) + '\n')
+            f.write('Number_of_winners: ' + str(extracted_data['winners']) + '\n')
             f.write('Prizes: ' + str(extracted_data['prizes']) + '\n')
+            f.write('Winners_total: ' + str(extracted_data['winners_total']) + '\n')
+            f.write('Prize_total: ' + str(extracted_data['prize_total']) + '\n')
 
     if csv:
         # Define columns
@@ -131,7 +129,12 @@ for url in urls:
             data = extract_data(parsed_page)
             print('Creating new file...')
             save_file(data, file_name)
+        elif status_code == 404:
+            print('Page not found.')
+            break
         else:
             print(f'{url} responded with status code: {status_code}')
 
 print('Euro Jackpot data scraping has finished.')
+
+print(urls[-1])
